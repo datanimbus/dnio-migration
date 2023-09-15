@@ -5,3 +5,5 @@ WORKDIR /tmp/app
 COPY . .
 
 RUN npm install --no-audit
+
+CMD [ "node", "app.js" ]
