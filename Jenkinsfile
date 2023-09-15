@@ -6,7 +6,6 @@ pipeline {
         string(name: 'tag', defaultValue: 'main', description: 'Image Tag')
         booleanParam(name: 'cleanBuild', defaultValue: false, description: 'Clean Build')
         booleanParam(name: 'pushToS3', defaultValue: false, description: 'Push to S3')
-        booleanParam(name: 'deploy', defaultValue: true, description: 'Deploy in machine')
         booleanParam(name: 'dockerHub', defaultValue: false, description: 'Push to Docker Hub')
     }
     stages {
@@ -34,28 +33,6 @@ pipeline {
                 sh "./scripts/push_ecr.sh"
             }
         }
-        stage('Save to S3') {
-            when {
-                expression {
-                    params.pushToS3  == true || params.dockerHub  == true
-                }
-            }
-            steps {
-                sh "chmod 777 ./scripts/push_s3.sh"
-                sh "./scripts/push_s3.sh"
-            }
-        }
-        stage('Deploy') {
-            when {
-                expression {
-                    params.deploy == true
-                }
-            }
-            steps {
-                sh "chmod 777 ./scripts/deploy.sh"
-                sh "./scripts/deploy.sh"
-            }
-        }
         stage('Push to Docker Hub') {
             when {
                 expression {
@@ -65,6 +42,17 @@ pipeline {
             steps {
                 sh "chmod 777 ./scripts/push_hub.sh"
                 sh "./scripts/push_hub.sh"
+            }
+        }
+        stage('Save to S3') {
+            when {
+                expression {
+                    params.pushToS3  == true || params.dockerHub  == true
+                }
+            }
+            steps {
+                sh "chmod 777 ./scripts/push_s3.sh"
+                sh "./scripts/push_s3.sh"
             }
         }
         stage('Clean Up') {
