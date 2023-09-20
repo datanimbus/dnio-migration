@@ -5,12 +5,12 @@ set -e
 TAG=`cat CURRENT_MIGRATION`
 
 echo "****************************************************"
-echo "datanimbus.io.migration :: Pushing Image to Docker Hub :: appveen/datanimbus.io.migration:$TAG"
+echo "datanimbus.io.migration :: Pushing Image to Docker Hub :: datanimbus/datanimbus.io.migration:$TAG"
 echo "****************************************************"
 
-docker tag datanimbus.io.migration:$TAG appveen/datanimbus.io.migration:$TAG
-docker push appveen/datanimbus.io.migration:$TAG
+docker tag datanimbus.io.migration:$TAG datanimbus/datanimbus.io.migration:$TAG
+docker push datanimbus/datanimbus.io.migration:$TAG
 
 echo "****************************************************"
-echo "datanimbus.io.migration :: Image Pushed to Docker Hub AS appveen/datanimbus.io.migration:$TAG"
+echo "datanimbus.io.migration :: Image Pushed to Docker Hub AS datanimbus/datanimbus.io.migration:$TAG"
 echo "****************************************************"
