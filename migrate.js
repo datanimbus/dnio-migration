@@ -1,57 +1,73 @@
+require('dotenv').config();
 const { MongoClient } = require('mongodb');
 const log4js = require('log4js');
-const renderId = require('render-id');
+const _ = require('lodash');
 
 const MONGO_AUTHOR_URL = process.env.MONGO_AUTHOR_URL || 'mongodb://localhost:27017';
 const MONGO_AUTHOR_DBNAME = process.env.MONGO_AUTHOR_DBNAME || 'datastackConfig';
 
-const logger = log4js.getLogger('Migration v2.7.5');
+const logger = log4js.getLogger('Migration v2.7.7');
 logger.level = 'info';
 
 (async () => {
     let conn;
     try {
         conn = await MongoClient.connect(MONGO_AUTHOR_URL);
-        const formulas = await conn.db(MONGO_AUTHOR_DBNAME).collection('metadata.mapper.formulas').find({ app: { $exists: false } }).toArray();
-        logger.info('Formulas Found:', formulas.length);
-        const plugins = await conn.db(MONGO_AUTHOR_DBNAME).collection('b2b.nodes').find({ app: 'admin' }).toArray();
-        logger.info('Plugins Found:', plugins.length);
-        const apps = await conn.db(MONGO_AUTHOR_DBNAME).collection('userMgmt.apps').find({}).toArray();
-        logger.info('Apps Found:', apps.length);
-        let formulaCounter = 0;
-        let pluginCounter = 0;
-        if (formulas.length == 0 && plugins.length == 0) {
+        const flowList = await conn.db(MONGO_AUTHOR_DBNAME).collection('b2b.flows').find().toArray();
+        logger.info('Flows Found:', flowList.length);
+        if (flowList.length == 0) {
             logger.info('No Data to migrate');
             return;
         }
-        await apps.reduce(async (prev, curr) => {
+        let conditionCounter = 100;
+        await flowList.reduce(async (prev, curr) => {
             try {
-                let status;
+                let newNodes = [];
+                let migrationNeededFlag = false;
                 await prev;
                 logger.info('===================================================');
-                if (formulas.length > 0) {
-                    logger.info('Creating Formulas for App:', curr._id);
-                    let tempFormulas = formulas.map(item => {
-                        item._id = renderId.render('FX####', formulaCounter);
-                        item.app = curr._id;
-                        formulaCounter++;
-                        return item;
-                    });
-                    status = await conn.db(MONGO_AUTHOR_DBNAME).collection('metadata.mapper.formulas').insertMany(tempFormulas);
-                    logger.info('Formulas Created for App:', curr._id);
-                    logger.info(JSON.stringify(status));
-                }
-                if (plugins.length > 0) {
-                    logger.info('Creating Plugins for App:', curr._id);
-                    let tempPlugins = plugins.map(item => {
-                        item._id = renderId.render('NODE####', pluginCounter);
-                        item.app = curr._id;
-                        pluginCounter++;
-                        return item;
-                    });
-                    status = await conn.db(MONGO_AUTHOR_DBNAME).collection('b2b.nodes').insertMany(tempPlugins);
-                    logger.info('Plugins Created for App:', curr._id);
-                    logger.info(JSON.stringify(status));
+
+                let allNodes = JSON.parse(JSON.stringify(curr.nodes || []));
+                allNodes.unshift(JSON.parse(JSON.stringify(curr.inputNode)));
+
+                allNodes.forEach(node => {
+                    if (node.onSuccess && node.onSuccess.length > 1) {
+                        migrationNeededFlag = true;
+                        let conditions = node.onSuccess.map((nextItem) => {
+                            let t = {};
+                            t._id = nextItem._id;
+                            t.name = nextItem.name;
+                            t.condition = nextItem.condition;
+                            return t;
+                        });
+                        conditionCounter++;
+                        let conditionNode = {};
+                        conditionNode.type = 'CONDITION';
+                        conditionNode.name = 'Condition ' + conditionCounter;
+                        conditionNode._id = _.snakeCase(conditionNode.name);
+                        conditionNode.conditions = conditions;
+                        conditionNode.onSuccess = [];
+                        conditionNode.onError = [];
+                        conditionNode.options = {};
+                        conditionNode.options.method = "POST";
+                        conditionNode.options.contentType = "application/json";
+                        conditionNode.options.conditionType = "ifElse";
+                        conditionNode.coordinates = JSON.parse(JSON.stringify(node.coordinates));
+                        conditionNode.coordinates.x += 200;
+                        conditionNode.coordinates.y += 200;
+                        node.onSuccess = [];
+                        node.onSuccess.push({ _id: conditionNode._id });
+                        newNodes.push(conditionNode);
+                    }
+                });
+                if (migrationNeededFlag) {
+                    logger.success('Migration Done for flow:', curr._id);
+                    curr.inputNode = allNodes[0];
+                    curr.nodes = allNodes.splice(1).concat(newNodes);
+                    const status = await conn.db(MONGO_AUTHOR_DBNAME).collection('b2b.flows').findOneAndUpdate({ _id: curr._id }, { $set: curr });
+                    logger.debug(status);
+                } else {
+                    logger.warn('Migration Skipped for flow:', curr._id);
                 }
                 logger.info('===================================================');
             } catch (err) {
@@ -62,22 +78,6 @@ logger.level = 'info';
                 logger.error('===================================================');
             }
         }, Promise.resolve());
-
-        try {
-            await conn.db(MONGO_AUTHOR_DBNAME).collection('b2b.nodes').dropIndex('type_1_category_1');
-            await conn.db(MONGO_AUTHOR_DBNAME).collection('metadata.mapper.formulas').dropIndex('UNIQUE_INDEX');
-            await conn.db(MONGO_AUTHOR_DBNAME).collection('metadata.mapper.formulas').dropIndex('name_1');
-
-            logger.info('===================================================');
-            logger.info('SUCCESS');
-            logger.info('===================================================');
-        } catch (err) {
-            logger.error('Error Occured while dropping indexes!');
-            logger.error(err);
-            logger.error('===================================================');
-            logger.error('ERROR');
-            logger.error('===================================================');
-        }
     } catch (err) {
         logger.error('Global Error Occured!');
         logger.error(err);
